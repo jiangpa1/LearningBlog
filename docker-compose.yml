@@ -1,0 +1,89 @@
+# ══════════════════════════════════════════════════════════════════════
+#  Learning 全栈：MySQL + Redis + 应用
+#
+#  用法：
+#    1. cp .env.example .env   然后填好三个口令
+#    2. docker compose up -d --build
+#    3. 打开 http://localhost:8081/doc.html
+#
+#  为什么把 MySQL / Redis 也放进容器：
+#    原来它们跑在虚拟机 192.168.133.128 上，而那台机器经常关机/抽风。
+#    容器化之后 `docker compose up` 就是一套完整且可复制的环境，不依赖任何外部机器。
+# ══════════════════════════════════════════════════════════════════════
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: learning-mysql
+    restart: unless-stopped
+    environment:
+      # :? 语法 = 变量没设置时 compose 直接报错退出，而不是起一个密码为空的库
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请先复制 .env.example 为 .env 并设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: learning
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      # ⚠️ 宿主 3306 已被本机的 mysqld 占用（实测 PID 10184），所以映射到 3307。
+      #    左边是宿主端口，右边是容器内端口 —— 容器里永远是 3306。
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 首次启动自动执行建表脚本（仅在数据卷为空时执行）
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # $$ 是转义：让 $MYSQL_ROOT_PASSWORD 在【容器内】展开，而不是被 compose 在本机展开
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: learning-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请先复制 .env.example 为 .env 并设置 REDIS_PASSWORD}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: learning-app:1.0
+    container_name: learning-app
+    restart: unless-stopped
+    depends_on:
+      # ★ 等健康检查通过再启动。否则应用会先起来、连不上库、直接退出，
+      #   表现为"容器起不来"，而根因只是竞态 —— 这是 compose 编排最经典的坑
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # ★ 这就是"配置怎么进容器"的答案：全部走环境变量注入。
+      #   镜像里没有任何 application-local.yml（被 .dockerignore 挡住了），
+      #   所以数据库密码不会跟着镜像走。
+      SPRING_PROFILES_ACTIVE: docker
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请先复制 .env.example 为 .env 并设置 JWT_SECRET（至少 32 字符）}
+    ports:
+      # 左边宿主端口，右边容器内端口。应用监听的是 server.port=8081，两边必须一致
+      - "8081:8081"
+
+volumes:
+  mysql-data:
+  redis-data:

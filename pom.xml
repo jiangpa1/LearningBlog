@@ -116,4 +116,20 @@
 
 
     </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              ★ 必须有它，mvn package 才会产出【可执行的 fat jar】（内含 Tomcat 与全部依赖）。
+                没有它时打出来的是 0.1MB 的瘦 jar，连 Main-Class 都没有，
+                `java -jar` 会报 "no main manifest attribute" —— Docker 的 ENTRYPOINT 必然撞上。
+                IDEA 里一直没暴露，是因为 IDEA 直接跑 main() 配 ~/.m2 的 classpath，根本没碰这个 jar。
+                版本号由 spring-boot-starter-parent 统一管理，不用自己写。
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -33,6 +33,7 @@
 | Lombok | 1.18.30 | provided |
 | spring-boot-starter-validation | — | 参数校验 |
 | Knife4j | 4.5.0 | 在线接口文档 UI（基于 springdoc-openapi-ui 1.7.0 / OpenAPI 3），访问 `/doc.html` |
+| Docker | 29.x + Compose v5 | **多阶段构建**；`docker compose up -d --build` 一键起 MySQL + Redis + 应用 |
 
 ---
 
@@ -181,19 +182,59 @@ src/main/resources/lua/rate_limit.lua   滑动窗口限流脚本
 
 ## 快速开始
 
-### 1. 环境要求
+### 方式一：Docker Compose（推荐）
+
+不需要本机装 MySQL / Redis / Maven / JDK —— 三件套都在容器里。
+
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
+# 编辑 .env，填三个口令（JWT_SECRET 至少 32 字符）
+docker compose up -d --build
+```
+
+启动后打开 **<http://localhost:8081/doc.html>**。
+
+| 服务 | 宿主端口 | 说明 |
+| --- | --- | --- |
+| 应用 | **8081** | 与 `server.port` 一致 |
+| MySQL | **3307** | ⚠️ 映射到 3307：宿主 3306 常被本机 mysqld 占用 |
+| Redis | 6379 | |
+
+**几个设计点**：
+
+- `.env` 里是**容器内新库**的口令，和你虚拟机上那个库完全无关（`.env` 已被 gitignore）
+- 容器内**不含任何 `application-local.yml`** —— 靠 `.dockerignore` 挡在构建上下文之外，配置全部走环境变量注入，**所以镜像里没有数据库密码**
+- 首次启动会自动执行 `docker/mysql-init/01-schema.sql`，四张表直接建好
+- 应用以**非 root 用户**运行（`uid=999(app)`），时区已设为 `Asia/Shanghai`
+- 首个管理员仍需手工指定：
+  `docker compose exec mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" learning -e "UPDATE tb_user SET role=1 WHERE username='你的账号';"`
+
+```bash
+docker compose ps            # 状态
+docker compose logs -f app   # 应用日志
+docker compose down          # 停止（数据保留）
+docker compose down -v       # 停止并删数据卷（库会重建）
+```
+
+> ⚠️ **首次构建约 10–15 分钟**（容器内要重新下载全部 Maven 依赖）。之后只要 `pom.xml` 没变，这一层会命中缓存，`--build` 很快。
+
+---
+
+### 方式二：本地运行（IDEA）
+
+#### 1. 环境要求
 
 - JDK **17**（⚠️ 注意本机 `java -version` 可能是 8，IDEA 里要单独配 17）
 - MySQL 8.x、Redis
 - Maven（**仓库里没有 Maven Wrapper**，所以用 IDEA 打开最省事；命令行需自备 `mvn`）
 
-### 2. 建库建表
+#### 2. 建库建表
 
 四张表：`tb_user`、`tb_article`、`tb_category`、`tb_comment`，建表语句见 **[`md/文章模块接口文档.md`](md/文章模块接口文档.md) 第二节**（已与库中实际结构逐字对齐）。
 
 > ⚠️ 表名**带 `tb_` 前缀**；四张表都有 `deleted` 逻辑删除列；评论表用的是**复合索引** `idx_article_create`。
 
-### 3. 配置 `JWT_SECRET` 环境变量
+#### 3. 配置 `JWT_SECRET` 环境变量
 
 值是 JWT 签名密钥，**至少 32 个字符**（HS256 要求 256 位，短了会抛 `WeakKeyException`）：
 
@@ -203,7 +244,7 @@ src/main/resources/lua/rate_limit.lua   滑动窗口限流脚本
 
 配到系统环境变量里。**改完必须把 IDEA 完全退出再打开** —— Windows 上已运行的进程读不到新加的环境变量，只重启项目没用。
 
-### 4. 重建 `src/main/resources/application-local.yml`
+#### 4. 重建 `src/main/resources/application-local.yml`
 
 数据库和 Redis 的账号密码都在这个文件里，**已被 `.gitignore` 忽略**（克隆下来是没有的，需要自己建）：
 
@@ -231,7 +272,7 @@ jwt:
 > 1. Spring Boot **2.x 的 Redis 配置前缀是 `spring.redis.*`**，3.x 才改成 `spring.data.redis.*` —— 抄了 3.x 的教程不会报错，只会**静默用默认值**（一直连 localhost）。
 > 2. **`spring.redis.timeout` 别调大**：实测 Redis 不可达时每次失败往返约 2 秒，而一次请求可能撞多次（登录要过限流 + 写 refresh key ≈ 5 秒）。超时设大 = Redis 抖动时整站被拖慢，生产建议几百毫秒级。
 
-### 5. 指定第一个管理员（**不做这步管理接口谁都打不开**）
+#### 5. 指定第一个管理员（**不做这步管理接口谁都打不开**）
 
 注册接口硬编码 `role = 0`，这是 fail-safe 设计，所以第一个管理员只能手工指定：
 
@@ -240,7 +281,7 @@ UPDATE tb_user SET role = 1 WHERE username = '你的账号';
 SELECT id, username, role, deleted FROM tb_user;   -- 确认
 ```
 
-### 6. 运行
+#### 6. 运行
 
 IDEA 里直接运行 `LearningApplication`，端口 **8081**。
 

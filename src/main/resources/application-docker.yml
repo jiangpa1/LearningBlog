@@ -1,0 +1,35 @@
+# ══════════════════════════════════════════════════════════════════════
+#  Docker 环境专用配置（由 SPRING_PROFILES_ACTIVE=docker 激活）
+#
+#  设计原则：**这个文件可以进 git、也可以进镜像** —— 因为它只描述「容器内的拓扑」，
+#  不含任何真实口令。所有口令一律由环境变量注入：
+#      MYSQL_ROOT_PASSWORD / REDIS_PASSWORD / JWT_SECRET
+#  没注入时会因为占位符解析失败而【启动即报错】—— 这是有意为之：宁可起不来，
+#  也不要静默连到 localhost 上跑出一个"看起来正常"的服务。
+#
+#  ⚠️ 为什么不直接复用 application-local.yml：
+#     它指向 192.168.133.128（虚拟机）。而**容器里的 127.0.0.1 是容器自己**，
+#     不是宿主机、更不是虚拟机 —— 这是容器网络最常踩的坑。
+#     容器之间互通必须用 compose 的 service 名（mysql / redis）。
+# ══════════════════════════════════════════════════════════════════════
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # ★ host 是 service 名 mysql，端口是容器内的 3306（不是宿主映射的 3307）
+    url: jdbc:mysql://mysql:3306/learning?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD}
+  redis:
+    # ★ 同理，service 名 redis
+    host: redis
+    port: 6379
+    password: ${REDIS_PASSWORD}
+    database: 0
+    timeout: 3000ms
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration: 30m
+  refresh-expiration: 7d
+  issuer: learning

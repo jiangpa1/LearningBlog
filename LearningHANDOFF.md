@@ -277,6 +277,44 @@ JwtInterceptor（你是谁，fail-closed）
 
 详见 `md/接口限流设计文档.md` 第十四节「实现记录」。
 
+### Docker 化部署（2026-09-20 完成并实测）
+
+**一句话**：`docker compose up -d --build` 一条命令起 MySQL + Redis + 应用，**不再依赖那台会关机/抽风的虚拟机**。
+
+| 文件 | 作用 |
+| --- | --- |
+| `Dockerfile` | **多阶段**：`maven:3.9-eclipse-temurin-17` 构建 → `eclipse-temurin:17-jre` 运行。非 root（`uid=999(app)`）；`TZ=Asia/Shanghai`；ENTRYPOINT 用 exec 形式（java 成为 PID 1，`docker stop` 的 SIGTERM 才能触发优雅停机） |
+| `docker-compose.yml` | 三个 service + 两个数据卷；mysql / redis 都带 healthcheck，app 用 `depends_on: condition: service_healthy` 等它们就绪 |
+| `.dockerignore` | ★ **挡住 `src/main/resources/application-local.yml`** —— 否则会被 `COPY src` 带进构建阶段 → 打进 jar → 进最终镜像，**数据库密码跟着镜像走** |
+| `application-docker.yml` | docker profile 专用：只写容器内拓扑（host 用 service 名 `mysql` / `redis`），口令全是 `${占位符}`，**可安全进 git 和镜像** |
+| `docker/mysql-init/01-schema.sql` | 首次启动自动建四张表 |
+| `.env` / `.env.example` | 口令文件；`.env` 已加进 `.gitignore`（**已用 `git check-ignore` 验证生效**） |
+
+**三个必踩的坑（都实测过）**：
+
+1. **`mvn package` 打出来的是瘦 jar** —— pom 里原本**没有 `<build>` 段、没有 `spring-boot-maven-plugin`**，产物只有 **0.1MB、连 `Main-Class` 都没有**，`java -jar` 报 `no main manifest attribute`，Docker 的 ENTRYPOINT 必然撞上。IDEA 里一直没暴露，因为 IDEA 直接跑 `main()` 配 `~/.m2` 的 classpath，**根本没碰这个 jar**。补上插件后 → **45.31MB**，`Main-Class: org.springframework.boot.loader.JarLauncher`、`Start-Class: com.jiangpa.LearningApplication`。
+2. **`spring.profiles.active: local` 在镜像里没有对应文件** —— 会静默退回默认值（连 localhost）。所以 compose 里设 `SPRING_PROFILES_ACTIVE=docker` 并新增 `application-docker.yml`。
+3. **宿主 3306 被本机 mysqld 占用**（实测 PID 10184）→ compose 里 MySQL 映射 **3307:3306**。
+
+**实测验收（2026-09-20）**：
+
+| 检查 | 结果 |
+| --- | --- |
+| 三个容器 | app `Up`、mysql `healthy`、redis `healthy` |
+| 启动日志 profile | `The following 1 profile is active: "docker"` |
+| `/doc.html`、`/v3/api-docs` | 200；**18 条 path = 22 个接口**、23 处接口级 `security` |
+| 注册 → 登录 → 带 token 调 `/category/list` | 全 `code:200`（打通 JWT 验签 + Redis 黑名单 + 限流 Lua + MySQL） |
+| 普通用户 `POST /category` | `403「无权限！」`（权限层生效） |
+| **容器内 MySQL 行数** | **1**（正是刚注册那个）→ **证明连的是容器库、不是虚拟机那个**（那台上已有 4 个用户） |
+| **镜像里有没有 `application-local.yml`** | **没有**；jar 内只有 `application.yml` + `application-docker.yml` |
+| 容器内进程用户 | `uid=999(app)`（非 root） |
+
+**两个已知可优化点（记下来，不是缺陷）**：
+
+- **镜像 516MB** —— 因为 `eclipse-temurin:17-jre` 基础镜像本身就 430MB。想瘦到 ~250MB 可换 `eclipse-temurin:17-jre-alpine`。
+- **首次构建 10–15 分钟**（实测 `dependency:go-offline` 单独用了 **849 秒**，容器内要重新下全部依赖）。之后只要 `pom.xml` 没变就命中 Docker 层缓存。想再快可给 `/root/.m2` 加 BuildKit cache mount。
+- ⚠️ **本地 `mvn package` 出来的 jar 里是带 `application-local.yml` 的**（实测 `BOOT-INF/classes/application-local.yml` 确实存在）—— 所以**本地构建的 jar 不能外发**。Docker 这条路靠 `.dockerignore` 挡住了。
+
 ### 基础设施
 - 三个拦截器（见第四节的顺序约定）
 - **接口文档（Knife4j，2026-09-19 接入）**：`http://localhost:8081/doc.html` —— 由 controller 签名**自动生成**，22 个接口按模块分组、可在线调试。调试受保护接口的步骤：先调 `/auth/login` 拿 accessToken → 在**左侧菜单**的 **Authorize** 里填入
@@ -615,11 +653,11 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 
 ### 仍然待办
 
-> **2026-09-19 第二轮复核**：原「接口文档一致性收尾」整项**已完成**（明细见本节末尾），「列表页浏览量」「评论不级联」也已落文档。下面只剩两条真正要动手的。
+> **2026-09-20 复核**：「接口文档一致性收尾」与 **Docker 部署**均**已完成**（明细见本节末尾与第五节）。现在真正要动手的只剩**单元测试**一条。
 
 | 优先级 | 事项 | 说明 |
 | --- | --- | --- |
-| **中** | **Docker 部署** | 简历差异点。仓库里目前**没有任何 Dockerfile / docker-compose / CI 文件**，确认未动工。见第十四节第 2 条 |
+| — | ~~Docker 部署~~ | **2026-09-20 已完成并实测**，见第五节「Docker 化部署」 |
 | **中** | **继续铺单元测试** | 优先 `UserServiceImpl` 的权限判断、`ArticleServiceImpl` 的缓存降级。见第十四节第 3 条 |
 | 低 | 提示语统一 | 见第九节（**昵称兜底文案现有 4 处不一致**） |
 | 低 | `JwtProperties` 写法 | 仍是 `@Component` + `@ConfigurationProperties`，未用 `@EnableConfigurationProperties`（能用，只是不够现代） |
