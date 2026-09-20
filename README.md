@@ -186,11 +186,25 @@ src/main/resources/lua/rate_limit.lua   滑动窗口限流脚本
 
 不需要本机装 MySQL / Redis / Maven / JDK —— 三件套都在容器里。
 
+**第一步**（两种用法都要）：
+
 ```bash
 cp .env.example .env        # Windows: copy .env.example .env
 # 编辑 .env，填三个口令（JWT_SECRET 至少 32 字符）
-docker compose up -d --build
 ```
+
+**第二步，按需要二选一**：
+
+| 你是 | 命令 | 说明 |
+| --- | --- | --- |
+| **只想跑起来** | `docker compose pull && docker compose up -d` | 拉取**已发布的镜像**，不需要源码、不用等构建 |
+| 想改代码 / 自己构建 | `docker compose up -d --build` | 本地构建，首次约 10–15 分钟 |
+
+已发布的镜像：**`ghcr.io/jiangpa1/learning-app:1.0`**（也可以单独 `docker pull` 它）
+
+> 镜像是 **GitHub Actions 自动构建并推送**的，见 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)：
+> push 到 `main` 且改动了 `src/`、`pom.xml`、`Dockerfile` 时自动重建，**不需要本地手动 push**。
+> CI 环境里没有 `application-local.yml`（它被 gitignore），所以 CI 产出的镜像天然不含任何口令。
 
 启动后打开 **<http://localhost:8081/doc.html>**。
 
@@ -216,7 +230,7 @@ docker compose down          # 停止（数据保留）
 docker compose down -v       # 停止并删数据卷（库会重建）
 ```
 
-> ⚠️ **首次构建约 10–15 分钟**（容器内要重新下载全部 Maven 依赖）。之后只要 `pom.xml` 没变，这一层会命中缓存，`--build` 很快。
+> ⚠️ **只有「自己构建」那条路才要等 10–15 分钟**（容器内要重新下载全部 Maven 依赖）；之后只要 `pom.xml` 没变，这一层会命中缓存。**用已发布镜像则几秒就能起来。**
 
 ---
 

@@ -59,10 +59,14 @@ services:
       retries: 20
 
   app:
+    # ★ image 与 build 同时存在是有意的，它让同一条 compose 文件支持两种用法：
+    #   开发者（有源码）：docker compose up -d --build     → 本地构建，并按这个名字打标签
+    #   使用者（只想跑）：docker compose pull && docker compose up -d
+    #                → 直接拉取已发布的镜像，不需要源码、不用等 10 分钟构建
+    image: ghcr.io/jiangpa1/learning-app:1.0
     build:
       context: .
       dockerfile: Dockerfile
-    image: learning-app:1.0
     container_name: learning-app
     restart: unless-stopped
     depends_on:
