@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-19
 > 项目路径：`C:\Users\ASUS\Desktop\Learning`
-> 项目仓库：`jiangpa1/Learning`（分支 `main`）
+> 项目仓库：`jiangpa1/LearningBlog`（分支 `main`）—— ⚠️ **2026-10-08 发现仓库已改名**：旧地址 `jiangpa1/Learning` 只是 GitHub 的重定向，写文档时用新名
 > 笔记仓库：`jiangpa1/java-learning`（每日练习与知识库）
 > 文档目录：`md/`
 >
