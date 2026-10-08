@@ -14,7 +14,7 @@
 
 一个 Java 后端学习项目，作者是计算机系大三学生，目标是 2026 年寒假（约 12 月—次年 1 月）找 Java 后端实习。
 
-形态上是一个**简易博客后端**：用户、认证、文章、分类、评论，文章详情带 Redis 缓存，另有逻辑删除、角色权限、接口限流三层横切能力，以及 **51 个单元测试**。**共 22 个接口**（认证 4 + 用户 6 + 文章 5 + 分类 4 + 评论 3）。
+形态上是一个**简易博客后端**：用户、认证、文章、分类、评论，文章详情带 Redis 缓存，另有逻辑删除、角色权限、接口限流三层横切能力，以及 **86 个单元测试**（2026-10-08 从 51 扩到 86）。**共 22 个接口**（认证 4 + 用户 6 + 文章 5 + 分类 4 + 评论 3）。
 
 需要说明的是，这**不是教学 demo**。接口分层、统一响应封装、JWT 双 Token 鉴权、角色权限、逻辑删除、接口限流、全局异常处理、分页、跨表查询、并发更新、缓存与缓存一致性、降级策略这些都是按真实项目的做法来的，代码里刻意避开了不少新手写法。接手或复看时，下面第七节的「关键设计决策」是最需要先读的部分——那些看起来"绕"的写法是为了解决具体问题，不要顺手改回简单版本。
 
@@ -672,7 +672,7 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 | 文章分类关联校验 | `categoryId` **非 null 时**才校验存在性（分类是可选的，与 `category_id` 允许 NULL 一致）；用 `selectById` 校验，受 `@TableLogic` 影响 → 指向已删除分类也会被拒 |
 | **改密码接口** | `PUT /user/password/{id}`：校验旧密码 → 四个拒绝分支 → 落库 → **删 refreshKey 强制下线**（见第七节第 17 条） |
 | **分页参数抽公共组件** | `PageQueryDTO`（`@Min`/`@Max`）+ 三个 Controller 统一 `@Valid @ModelAttribute`；`PageResult<?>` 通配符改成具体泛型 |
-| **单元测试** | 4 个测试类 **51 个用例**（`JwtUtilsTest` 13 / `CacheKeysTest` 9 / `TokenServiceImplTest` 17 / `RateLimitInterceptorTest` 12），重点锁住**降级方向**与已修缺陷 |
+| **单元测试** | ~~4 个测试类 **51 个用例**~~ → **2026-10-08 扩到 6 个测试类 86 个用例**（新增 `UserServiceImplTest` 34 个：权限判断成对测 + 改角色无条件作废凭证），重点锁住**降级方向**与已修缺陷 |
 | 昵称/密码接口拆分 | `UserUpdateDTO` → `UpdateNicknameDTO`，路径改为 `PUT /user/nickname/{id}`（昵称和密码的校验规则完全不同，混一个 DTO 会让改昵称也被要求传旧密码） |
 | 三类参数异常处理 | 补 `BindException`（`@ModelAttribute` 校验失败）、`MissingServletRequestParameterException`、`MethodArgumentTypeMismatchException` → 全部 400（**少了会返 500**，见第七节第 15 条的坑） |
 | 接口文档重写 | `md/用户模块接口文档.md` 按实际实现重写（10 个接口 + 8 个状态码 + 越权机制 + 跨模块行为约定） |
@@ -745,6 +745,9 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 | **Redis 挂时登录/登出返 500** | `TokenServiceImpl` 的 Redis 读写没包 try/catch。**方向**：签发凭证 fail-closed 503、写黑名单 fail-closed、删 key 可 fail-open |
 | 用 `javac` 单独编译本项目报"找不到符号 `log`" | `log` 是 Lombok 生成的，编译时**不能加 `-proc:none`**（会关掉注解处理器）。用 IDEA 构建则无此问题 |
 | 静态方法调用报"无法从静态上下文中引用非静态方法" | `IpUtils.getClientIp` 是**实例方法**（和 `JwtUtils` 统一风格，注册成 Bean）。要么用 `ipUtils` 实例调用，要么整体改成静态工具类 —— 别混用 |
+| **`./mvnw: Permission denied`**（macOS/Linux） | `mvnw` 在 git 里丢了**可执行位**。本项目在 Windows 上生成时就是 `100644`，已用 `git update-index --chmod=+x mvnw` 修成 `100755` —— **别改回去** |
+| **`mvnw` 第一次跑卡住/超时** | `only-script` 模式的 wrapper 要**首次下载 Maven 3.9.16（约 9MB）到 `~/.m2/wrapper/dists`**才能工作。网络不通/要走代理时，得先配好 `~/.m2/settings.xml` 的 `<proxies>` |
+| **`mvnw` 报了找不到依赖，但系统 `mvn` 是好的** | 两者都读同一个 `~/.m2/repository` 和用户级 `~/.m2/settings.xml`，通常没差别。⚠️ 但**代理/镜像**若只配在了 Maven 安装目录的 `conf/settings.xml` 里，wrapper 就吃不到 —— **把镜像配到用户级 `~/.m2/settings.xml`**，两套才都生效 |
 
 
 ---
@@ -814,9 +817,9 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 
 ## 十三、验证足迹
 
-### 13.1 单元测试（2026-09-19 起）
+### 13.1 单元测试（2026-09-19 起，2026-10-08 扩到 86 个）
 
-**51 个用例，JUnit 5 + Mockito**，纯单元测试（不启动 Spring 容器、不连数据库和 Redis）：
+**86 个用例，JUnit 5 + Mockito**，除 `RedisConnectTest` 外都是纯单元测试（不启动 Spring 容器、不连数据库和 Redis）：
 
 | 测试类 | 用例 | 锁住什么 |
 | --- | --- | --- |
@@ -824,11 +827,21 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 | `CacheKeysTest` | 9 | **uri 必须参与限流 key 拼接**（否则 `/article/1` 与 `/article/2` 共用计数器）；key 格式无双冒号、全部带 `learning:` 前缀 |
 | `TokenServiceImplTest` | 17 | **四张降级表**：issue/refresh/isRevoked 的 Redis 失败 → 503；logout 删 key → fail-open、写黑名单 → 503；过期 refreshToken → **401 而非 500** |
 | `RateLimitInterceptorTest` | 12 | Redis 挂/脚本返空 → **fail-open 放行且不 NPE**；**userId 为 null 时（登录注册走这条路）不 NPE**；超限返 **429 而非 401**；key 按 userId/IP 分维度 |
+| **`UserServiceImplTest`** | **34** | **权限判断必须成对测**（"该拒的拒" + **"该放的放"** —— 只测前者的话 `!A && !B` 与 `!A \|\| !B` **都会通过**，正是缺陷 2 当初漏掉的那一层）；**改角色删 refreshKey 必须无条件执行**（缺陷 4 的回归用例）；**404 不能被 403 盖住**（存在性校验要在归属校验之前）；`role` 为 null 的旧数据不能 NPE；防用户名枚举的两条失败提示语必须一字不差；删除类操作 Redis 挂 → fail-open；`UserVO` 不含 `password` |
+| `AppTest` | 1 | 骨架用例，确认测试环境（JUnit 5）可用 |
+| `RedisConnectTest` | 1 | ⚠️ **唯一的 `@SpringBootTest`**，需要 MySQL/Redis 都起着；只跑纯单测时排除它 |
 
 **为什么优先测这些**：**降级方向靠接口测试极难复现**（要停 Redis、改端口、重启），而权限与降级逻辑**写错了大部分用例还是绿的** —— 只有把"该放行的"也写成断言才拦得住。
 
-> **跑法**：IDEA 里右键 `src/test/java` → Run Tests。项目**没有 Maven wrapper**（`mvn` 不在 PATH），所以命令行跑需要自己拼 classpath；
-> `day43/TestRunner.java.bak` 是为此写的一个 JUnit Platform 运行器（**需要额外加 `junit-platform-launcher` 依赖**，`spring-boot-starter-test` 不传递它，所以在 IDEA 里直接编译会报"程序包不存在"）。
+> **跑法（2026-10-08 起有 `mvnw` 了，不再需要手拼 classpath）**：
+>
+> ```bash
+> ./mvnw test -Dtest='!RedisConnectTest'    # Windows: .\mvnw.cmd ...
+> ```
+>
+> 仓库自带 **Maven Wrapper**（`.mvn/wrapper/` + `mvnw` / `mvnw.cmd`），**第一次运行会自己下载 Maven 3.9.16 到 `~/.m2/wrapper/dists`**，之后走缓存。
+> `mvnw` 在 git 里是 **`100755`（可执行位）** —— 这是在 Windows 上生成的，特意用 `git update-index --chmod=+x` 修的，别改回 100644，否则 macOS/Linux 上 `./mvnw` 会 permission denied。
+> 另外 **`spring-boot-starter-test` 不传递 `junit-platform-launcher`**，所以 `day43/TestRunner.java.bak` 那个自写运行器在 IDEA 里直接编译会报"程序包不存在" —— 现在有 `mvnw` 了，**不需要它**。
 
 ### 13.2 接口实测回归脚本
 
@@ -850,27 +863,28 @@ public Result<?> selectList(@Valid @ModelAttribute PageQueryDTO pageQueryDTO)
 
 ---
 
-## 十四、下一步（2026-09-20 起）
+## 十四、下一步（2026-10-08 复核重排）
 
 **2026-09-19 已完成**：HTTP/HTTPS 笔记 + 知识库 4 条；改密码接口；分页组件化；三类参数异常处理；51 个单元测试。
+**2026-10-08 已完成**：`UserServiceImplTest` 34 个用例（全量 **86 个**，重点锁权限判断与"改角色无条件作废凭证"）；补齐 **Maven Wrapper**；3 个挂着的风格改动已提交。
 所以原来的第 2、3 项已完成，本节重排。
 
-### 项目侧（按建议顺序）
+### 项目侧（按建议顺序，2026-10-08 复核重排）
 
-> **2026-09-19 第二轮**：原第 1 项「接口文档一致性收尾」**已完成**；原第 4 项里的「魔法数字提取常量」「`PageResult` 死代码构造器」复核时发现**也已完成**。故重排如下。
+1. ~~接口文档一致性收尾~~、~~Docker 部署~~、~~GitHub Actions 推镜像~~、~~Maven Wrapper~~ —— **均已完成**
+2. **继续铺单元测试** —— `UserServiceImpl` 的权限判断**已于 2026-10-08 补完（34 个用例）**；
+   **还剩 `ArticleServiceImpl` 的缓存降级**（Cache Aside 命中/miss、空值哨兵、击穿互斥锁、降级 fail-open）
+3. 低优先（可做可不做）：统一提示语（**昵称兜底文案 4 处不一致**，见第九节）、`JwtProperties` 改用 `@EnableConfigurationProperties`
+4. **不做**：限流阈值调优（演示值，已在文档标注）、引入完整 Spring Security（现在只用 `spring-security-crypto` 只要 BCrypt，这个取舍本身是好的面试答案）
 
-1. ~~接口文档一致性收尾~~ —— **已完成**（第二轮，见第八节末尾），顺手补了 `README.md`
-2. **Docker 部署**（1 天）—— 简历差异点：Dockerfile + `docker-compose` 起 MySQL/Redis/应用，同时把"`JWT_SECRET` 怎么传进容器、`application-local.yml` 怎么不烤进镜像"讲清楚
-3. **继续铺单元测试**（重点补 `UserServiceImpl` 的权限判断、`ArticleServiceImpl` 的缓存降级）
-   —— 权限逻辑是**最该有测试的地方**，因为 `!A || !B` 写反时大部分用例还是绿的
-4. 低优先（可做可不做）：统一提示语、`JwtProperties` 改用 `@EnableConfigurationProperties`
-5. **可选**：给仓库补 **Maven Wrapper（`mvnw`）** —— 现在克隆下来的人既没有 `mvnw` 也没有 `mvn`（`.mvn` 目录是空的），只能靠 IDEA 打开才能构建
+> **Learning 到这里已经没有"必须做"的活了。** 第 2、3 项都是锦上添花 —— 按 `Desktop\java\学习计划-2026-10.md`，
+> **10 月中旬前应当收尾，把时间让给海麻吃透和 Java 并发**。
 
 ### 知识侧
 
-5. **计算机网络收口**：把「从输入 URL 到页面展示」串成一条链路（DNS → TCP → TLS → HTTP → 渲染）
-   —— 这一题能把 9.16～9.19 学的全串起来，是面试的综合题
-6. **操作系统**（学习路线第二阶段还剩这块：进程/线程、内存管理、IO 模型）
+5. ~~计算机网络收口~~ —— **已完成**（2026-09-20，「从输入 URL 到页面展示」）
+6. ~~操作系统：进程/线程、内存管理、IO 模型~~ —— **主干已完成**（9.21 进程与线程 / 9.22 内存管理 / 9.23 IO 模型，知识库补 2 条）
+   **还剩**：线程同步与死锁（互斥锁、信号量、经典同步问题、死锁四条件与处理）
 7. 11 月启动简历 + JavaGuide 八股文系统刷题；12 月海投
 8. ~~10 月底前决定第二个项目~~ —— **已定：海南麻将联机版（已上线，见辅导任务侧 `HANDOFF.md` 第五节）**。接下来的重点是**把它吃透**（按那四条调用链），Learning 收尾 + 海麻吃透，两个项目就够撑简历
 

@@ -240,7 +240,7 @@ docker compose down -v       # 停止并删数据卷（库会重建）
 
 - JDK **17**（⚠️ 注意本机 `java -version` 可能是 8，IDEA 里要单独配 17）
 - MySQL 8.x、Redis
-- Maven（**仓库里没有 Maven Wrapper**，所以用 IDEA 打开最省事；命令行需自备 `mvn`）
+- Maven —— **仓库自带 Maven Wrapper（`mvnw` / `mvnw.cmd`），不需要预先装 Maven**
 
 #### 2. 建库建表
 
@@ -301,6 +301,26 @@ IDEA 里直接运行 `LearningApplication`，端口 **8081**。
 
 启动后打开 **<http://localhost:8081/doc.html>** —— 在线接口文档，可以直接在上面调试所有接口。
 
+#### 7. 命令行（不装 Maven 也能跑）
+
+仓库自带 **Maven Wrapper**，第一次运行会自己下载 Maven（约 9MB，之后走缓存）：
+
+```bash
+./mvnw test        # 或 Windows: .\mvnw.cmd test
+
+# RedisConnectTest 是 @SpringBootTest，需要 MySQL/Redis 都起着；只跑纯单测时排除它
+./mvnw test -Dtest='!RedisConnectTest'
+
+./mvnw clean package    # 打包（产物 target/Learning-1.0-SNAPSHOT.jar）
+./mvnw spring-boot:run  # 直接启动，端口 8081
+```
+
+> ⚠️ 用 `java -jar` 跑之前，**先确认 `JWT_SECRET` 已配**、`application-local.yml` 已重建 —— 否则会在启动时抛
+> `Could not resolve placeholder 'JWT_SECRET'`。
+>
+> ⚠️ **本地 `mvn package` 出来的 jar 里带着 `application-local.yml`（含数据库口令），不要外发** ——
+> Docker 那条路是靠 `.dockerignore` 挡住的，本地构建没有这层保护。
+
 ---
 
 ## 接口文档
@@ -351,7 +371,7 @@ IDEA 里直接运行 `LearningApplication`，端口 **8081**。
 
 ### 单元测试
 
-**51 个用例**，JUnit 5 + Mockito，**纯单元测试**（不启动 Spring 容器、不连数据库和 Redis），IDEA 里跑全绿：
+**86 个用例**，JUnit 5 + Mockito，**纯单元测试**（除了标出的那个 `@SpringBootTest`，其余都不启动 Spring 容器、不连数据库和 Redis）：
 
 | 测试类 | 用例 | 锁住什么 |
 | --- | --- | --- |
@@ -359,6 +379,9 @@ IDEA 里直接运行 `LearningApplication`，端口 **8081**。
 | `CacheKeysTest` | 9 | **uri 必须参与限流 key 拼接**；key 格式无双冒号、全带 `learning:` 前缀 |
 | `TokenServiceImplTest` | 17 | **四张降级表**：issue / refresh / isRevoked 的 Redis 失败 → 503；logout 删 key → fail-open、写黑名单 → 503 |
 | `RateLimitInterceptorTest` | 12 | Redis 挂 / 脚本返空 → **fail-open 放行且不 NPE**；超限返 **429 而非 401**；key 按 userId / IP 分维度 |
+| `UserServiceImplTest` | **34** | **权限判断必须成对测**（"该拒的拒" + **"该放的放"** —— 只测前者的话 `!A && !B` 和 `!A \|\| !B` 都会通过）；**改角色删 refreshKey 必须无条件执行**（否则降级形同虚设）；404 不能被 403 盖住；`role` 为 null 不 NPE；防用户名枚举的两条提示语必须一字不差；删除类操作 fail-open |
+| `AppTest` | 1 | 骨架用例，确认测试环境可用 |
+| `RedisConnectTest` | 1 | ⚠️ 唯一的 `@SpringBootTest`，**需要 MySQL/Redis 都起着**；只跑纯单测时用 `-Dtest='!RedisConnectTest'` 排除 |
 
 **为什么优先测这些**：降级方向靠接口测试极难复现（要停 Redis、改端口、重启），而权限与降级逻辑**写错了大部分用例还是绿的** —— 只有把"该放行的"也写成断言才拦得住。
 
