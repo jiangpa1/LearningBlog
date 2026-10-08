@@ -154,7 +154,7 @@ public class TokenServiceImpl implements TokenService {
     public boolean isRevoked(String accessToken) {
         String key = CacheKeys.tokenBlacklist(jwtUtils.hashToken(accessToken));
         try {
-            return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key));
+            return stringRedisTemplate.hasKey(key);
         }catch (Exception e){
             log.error("黑名单查询失败，按已吊销处理（fail-closed），key={}", key, e);
             throw new BusinessException(503, "认证服务暂时不可用，请稍后重试");

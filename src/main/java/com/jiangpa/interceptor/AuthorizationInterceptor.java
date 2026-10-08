@@ -62,6 +62,4 @@ public class AuthorizationInterceptor implements HandlerInterceptor {
         // 用注入的 ObjectMapper 序列化，不要手拼 JSON 字符串——字段名或转义出问题很难查
         response.getWriter().write(objectMapper.writeValueAsString(Result.forbidden(message)));
     }
-
-
 }

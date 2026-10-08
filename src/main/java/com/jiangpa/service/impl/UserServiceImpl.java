@@ -193,10 +193,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(400, "用户名或密码错误");
         }
 
-        UserVO userVO = new UserVO();
-        BeanUtils.copyProperties(user, userVO);
-
-        return userVO;
+        return toUserVO(user);
     }
 
     @Override
